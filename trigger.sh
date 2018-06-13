@@ -13,22 +13,43 @@ BRANCH=$3
 TRAVIS_ACCESS_TOKEN=$4
 MESSAGE=$5
 
-# fetch trigger-travis script and make executable
-curl -LO "https://raw.github.com/stephanmg/travis-dependent-builds/master/trigger-travis.sh"
-chmod +x trigger-travis.sh
-
-# check for correct input
-#if [ $# -lt 4 ] ; then
- #  usage()
-#fi
-
 # trigger build if above conditions hold
-#if [[ ($TRAVIS_BRANCH == $3) &&
-if [[ ($TRAVIS_PULL_REQUEST == false) &&
-   ( (! $TRAVIS_JOB_NUMBER == *.*) || ($TRAVIS_JOB_NUMBER == *.1) ) ]] ; then
-   chmod +x trigger-travis.sh
-   ./trigger-travis.sh $1 $2 $4 $3 $5
-fi
+     if [ $# -eq 5 ] ; then
+         MESSAGE=",\"message\": \"$5\""
+     elif [ -n "$TRAVIS_REPO_SLUG" ] ; then
+         MESSAGE=",\"message\": \"Triggered from upstream build of $TRAVIS_REPO_SLUG by commit "`git rev-parse --short HEAD`"\""
+     fi
+     # for debugging
+     echo "USER=$USER"
+     echo "REPO=$DOWNSTREAM_REPO"
+     echo "BRANCH=$BRANCH"
+     echo "MESSAGE=$MESSAGE"
+
+     # curl POST request content body
+     BODY="{
+       \"request\": {
+       \"branch\":\"$BRANCH\"
+       $MESSAGE
+     }}"
+     # make a POST request with curl (note %2F could be replaced with
+     # / and additional curl arguments, however this works too!)
+     curl -s -X POST \
+       -H "Content-Type: application/json" \
+       -H "Accept: application/json" \
+       -H "Travis-API-Version: 3" \
+       -H "Authorization: token ${TRAVIS_ACCESS_TOKEN}" \
+       -d "$BODY" \
+       "https://api.travis-ci.com/repo/${USER}%2F${DOWNSTREAM_REPO}/requests" \
+       | tee /tmp/travis-request-output.$$.txt
+
+     if grep -q '"@type": "error"' /tmp/travis-request-output.$$.txt; then
+        cat /tmp/travis-request-output.$$.txt
+        exit 1
+     elif grep -q 'access denied' /tmp/travis-request-output.$$.txt; then
+        cat /tmp/travis-request-output.$$.txt
+        exit 1
+     fi
+
 
 # usage function
 function usage {
